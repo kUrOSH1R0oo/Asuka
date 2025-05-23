@@ -13,7 +13,7 @@ The Asuka Phishing Framework is a Python-based tool designed for educational and
 - **Multi-Page Cloning**: Recursively clones linked pages up to a configurable depth for comprehensive site replication.
 - **Credential Capture**: Modifies HTML forms to capture usernames, passwords, CSRF tokens, and other form data, with fallback parsing for non-standard fields.
 - **Data Encryption**: Employs Fernet symmetric encryption to secure captured data during transmission.
-- **Session Tracking**: Logs session details, including client IP, user agent, geolocation (via hostname resolution), and requested paths.
+- **Session Tracking**: Logs session details, user agent, geolocation (via hostname resolution), and requested paths.
 - **Local Phishing Server**: Runs a concurrent HTTP server using Python’s `ThreadingHTTPServer` to serve cloned pages and handle POST requests.
 - **Database Storage**: Stores captured credentials and session data in a SQLite database (`asuka_data.db`) with indexed tables for efficient querying.
 - **Custom JavaScript Injection**: Supports injecting custom JavaScript for additional functionality or obfuscation (Only 1 for now).
