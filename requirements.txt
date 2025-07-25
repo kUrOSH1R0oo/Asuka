@@ -3,3 +3,4 @@ beautifulsoup4
 cryptography
 playwright
 pyshorteners
+netifaces
